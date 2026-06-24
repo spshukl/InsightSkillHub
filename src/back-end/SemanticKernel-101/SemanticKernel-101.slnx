@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="../enterprise-rag-chat-101/enterprise-rag-chat-101.csproj" />
+  <Project Path="../multi-ai-agent-Orchestration-demo/multi-ai-agent-Orchestration-demo.csproj" Id="d186c73f-fd0d-497f-86c9-45c0d04a3d03" />
   <Project Path="SemanticKernel-101.csproj" />
 </Solution>

@@ -1,5 +1,4 @@
-{
-  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+{"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
     "databaseAccounts_irt_docdb_name": {
@@ -92,22 +91,28 @@
       "type": "Microsoft.Sql/servers",
       "kind": "v12.0",
       "name": "[parameters('sqlServerPrimaryName')]",
-      "apiVersion": "2021-11-01",  //2014-04-01-preview changes 2021 api version
+      "apiVersion": "2021-11-01", 
       "location": "[resourceGroup().location]",
       "properties": {
         "administratorLogin": "ppdAdmin",
-        "administratorLoginPassword": "[parameters('databaseAccounts_sqlPw')]",
-        "version": "12.0"
+        "administratorLoginPassword": "[parameters('databaseAccounts_sqlPw')]"
       },
       "resources": [
         {
           "type": "elasticpools",
           "name": "[parameters('elasticPoolName')]",
-          "apiVersion": "2021-11-01",        //2014-04-01-preview changes 2021 api version
+          "apiVersion": "2021-11-01",     
           "location": "[resourceGroup().location]",
           "dependsOn": [
             "[resourceId('Microsoft.Sql/servers', parameters('sqlServerPrimaryName'))]"
           ],
+         "sku": {
+            "name": "StandardPool",
+            "tier": "Standard",
+            "capacity": "[int(parameters('servers_irt_ppdi_eastus_elasticPoolDtu'))]"
+          }, 
+         
+
           "properties": {
             "edition": "Standard",
             "dtu": "[parameters('servers_irt_ppdi_eastus_elasticPoolDtu')]",
@@ -148,7 +153,7 @@
         {
           "name": "[parameters('databases_irt_ppdi_name')]",
           "type": "databases",
-          "apiVersion": "2021-11-01",        //2014-04-01-preview changes 2021 api version
+          "apiVersion": "2021-11-01",    
           "location": "[resourceGroup().location]",
           "dependsOn": [
             "[resourceId('Microsoft.Sql/servers',parameters('sqlServerPrimaryName'))]",
@@ -168,12 +173,11 @@
       "kind": "v12.0",
       "condition": "[equals(parameters('provisionWarehouse'),'true')]",
       "name": "[parameters('servers_irt_ppdi_eastus_dw_name')]",
-      "apiVersion": "2021-11-01",        //2014-04-01-preview changes 2021 api version
+      "apiVersion": "2021-11-01",       
       "location": "[resourceGroup().location]",
       "properties": {
         "administratorLogin": "ppdAdmin",
-        "administratorLoginPassword": "[parameters('databaseAccounts_sqlDwPw')]",
-        "version": "12.0"
+        "administratorLoginPassword": "[parameters('databaseAccounts_sqlDwPw')]"
       },
       "dependsOn": []
     },
@@ -182,7 +186,7 @@
       "kind": "v12.0",
       "condition": "[equals(parameters('multi-region'),'true')]",
       "name": "[parameters('sqlServerSecondaryName')]",
-      "apiVersion": "2021-11-01",        //2014-04-01-preview changes 2021 api version
+      "apiVersion": "2021-11-01",       
       "location": "[parameters('sqlServerRemoteLocation')]",
       "properties": {
         "administratorLogin": "ppdAdmin",
@@ -192,7 +196,7 @@
       "dependsOn": []
     },
     {
-      "apiVersion": "2021-11-01",        //2014-04-01-preview changes 2021 api version
+      "apiVersion": "2021-11-01",       
       "dependsOn": [
         "[concat('Microsoft.Sql/servers/', parameters('sqlServerSecondaryName'))]"
       ],
@@ -212,7 +216,7 @@
       "kind": "v12.0,user,datawarehouse",
       "condition": "[equals(parameters('provisionWarehouse'),'true')]",
       "name": "[concat(parameters('servers_irt_ppdi_eastus_dw_name'), '/', parameters('databases_ppdi_name'))]",
-      "apiVersion": "2021-11-01",        //2014-04-01-preview changes 2021 api version
+      "apiVersion": "2021-11-01",        
       "location": "[resourceGroup().location]",
       "scale": null,
       "properties": {
