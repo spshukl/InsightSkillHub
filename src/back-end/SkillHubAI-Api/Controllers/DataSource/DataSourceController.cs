@@ -78,7 +78,7 @@ namespace SkillHubAI_Api.Controllers.DataSource
                 string uploadId = Guid.NewGuid().ToString();
 
                 _logger.LogInformation(
-                    "Starting upload — UploadId: {UploadId}, File: {FileName}, Size: {Size} bytes",
+                    "starting file upload — UploadId: {UploadId}, File: {FileName}, Size: {Size} bytes",
                     uploadId, file.FileName, file.Length);
 
                 await _azStorageService.UploadFileAsync(file, uploadId, cancellationToken);

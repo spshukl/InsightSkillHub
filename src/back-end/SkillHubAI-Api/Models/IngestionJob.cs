@@ -1,6 +1,6 @@
 ﻿namespace SkillHubAI_Api.Models
 {
-    public sealed class IngestionJob
+    public sealed class IngestionRequest
     {
         public required string FileId { get; init; }
         public required string BlobUri { get; init; }

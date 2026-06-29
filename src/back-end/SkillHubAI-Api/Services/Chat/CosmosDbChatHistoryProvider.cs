@@ -110,19 +110,13 @@ namespace SkillHubAI_Api.Services.Chat
             }
         }
 
-        /// <summary>
-        /// Sets the session ID in the provider state for a given session.
-        /// Call this after creating a session to link it to a known ID.
-        /// </summary>
         public void SetSessionId(AgentSession session, string sessionId)
         {
             var state = new CosmosSessionState { SessionId = sessionId };
             _sessionState.SaveState(session, state);
         }
 
-        /// <summary>
-        /// Gets the session ID from the provider state.
-        /// </summary>
+      
         public string GetSessionId(AgentSession session)
         {
             return _sessionState.GetOrInitializeState(session).SessionId;

@@ -28,10 +28,8 @@ namespace SkillHubAI_Api.Services.Ingestion
         private readonly IChatClient _chatClient;
         private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
         private readonly SearchIndexClient _searchIndexClient;
-        /// <summary>
-        /// Maps file extensions to MIME media types.
-        /// Used by IngestionDocumentReader to determine how to parse the file.
-        /// </summary>
+       
+        //mime type map krne k liye
         private static readonly Dictionary<string, string> MediaTypeMap = new(StringComparer.OrdinalIgnoreCase)
         {
             { ".pdf",  "application/pdf" },
@@ -53,8 +51,8 @@ namespace SkillHubAI_Api.Services.Ingestion
             IOptions<AzureOpenAISettings> openAISettings,
             IOptions<AzureAISearchSettings> searchSettings,
             IOptions<IngestionSettings> ingestionSettings,
-             AzureOpenAIClient openAIClient,                                    //D
-        IChatClient chatClient,                                             //
+             AzureOpenAIClient openAIClient,                                   
+        IChatClient chatClient,                                             
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,   
         SearchIndexClient searchIndexClient,
 
@@ -66,9 +64,9 @@ namespace SkillHubAI_Api.Services.Ingestion
             _openAISettings = openAISettings.Value;
             _searchSettings = searchSettings.Value;
             _ingestionSettings = ingestionSettings.Value;
-            _openAIClient = openAIClient;               // 
-            _chatClient = chatClient;                     // 
-            _embeddingGenerator = embeddingGenerator;     // 
+            _openAIClient = openAIClient;               
+            _chatClient = chatClient;                      
+            _embeddingGenerator = embeddingGenerator;      
             _searchIndexClient = searchIndexClient;
 
         }
@@ -81,15 +79,15 @@ namespace SkillHubAI_Api.Services.Ingestion
                 _ingestionSettings.ChunkingStrategy,
                 _ingestionSettings.MaxTokensPerChunk);
 
-            await foreach (var job in _queue.DequeueAllAsync(stoppingToken))
+            await foreach (var req in _queue.DequeueAllAsync(stoppingToken))
             {
                 try
                 {
                     _logger.LogInformation(
                         "Processing job — FileId: {FileId}, File: {FileName}",
-                        job.FileId, job.FileName);
+                        req.FileId, req.FileName);
 
-                    await ProcessJobAsync(job, stoppingToken);
+                    await ProcessJobAsync(req, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -99,10 +97,10 @@ namespace SkillHubAI_Api.Services.Ingestion
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
-                        "Unhandled error — FileId: {FileId}", job.FileId);
+                        "Unhandled error — FileId: {FileId}", req.FileId);
 
                     await SafeUpdateStatusAsync(
-                        job.FileId, IngestionStatus.Failed,
+                        req.FileId, IngestionStatus.Failed,
                         $"Unexpected error: {ex.Message}", stoppingToken);
                 }
             }
@@ -110,26 +108,26 @@ namespace SkillHubAI_Api.Services.Ingestion
             _logger.LogInformation("DataIngestionService stopped");
         }
 
-        private async Task ProcessJobAsync(IngestionJob job, CancellationToken cancellationToken)
+        private async Task ProcessJobAsync(IngestionRequest req, CancellationToken cancellationToken)
         {
             using var scope = _scopeFactory.CreateScope();
             var statusHandler = scope.ServiceProvider.GetRequiredService<IIngestionStatusHandler>();
             var storageService = scope.ServiceProvider.GetRequiredService<IAzureStorageService>();
             var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
 
-            // ─── DOWNLOAD BLOB TO TEMP FILE ───
-            // Pipeline requires FileInfo — it calls reader.ReadAsync(FileInfo) internally
+         
+            
             await statusHandler.UpdateStatusAsync(
-                job.FileId, IngestionStatus.Extracting,
+                req.FileId, IngestionStatus.Extracting,
                 "Downloading document from blob storage", cancellationToken);
 
-            _logger.LogInformation("[{FileId}] Downloading blob: {BlobUri}", job.FileId, job.BlobUri);
+            _logger.LogInformation("[{FileId}] Downloading blob: {BlobUri}", req.FileId, req.BlobUri);
 
-            using var blobStream = await storageService.DownloadBlobAsync(job.BlobUri, cancellationToken);
+            using var blobStream = await storageService.DownloadBlobAsync(req.BlobUri, cancellationToken);
 
-            var tempDir = Path.Combine(Path.GetTempPath(), "skillhubai", job.FileId);
+            var tempDir = Path.Combine(Path.GetTempPath(), "skillhubai", req.FileId);
             Directory.CreateDirectory(tempDir);
-            var tempFilePath = Path.Combine(tempDir, job.FileName);
+            var tempFilePath = Path.Combine(tempDir, req.FileName);
 
             try
             {
@@ -139,14 +137,14 @@ namespace SkillHubAI_Api.Services.Ingestion
                     await blobStream.CopyToAsync(fileStream, cancellationToken);
                 }
 
-                _logger.LogInformation("[{FileId}] Saved to temp: {Path}", job.FileId, tempFilePath);
+                _logger.LogInformation("[{FileId}] Saved to temp: {Path}", req.FileId, tempFilePath);
 
           
                 IngestionDocumentReader reader = new MarkItDownReader();
 
                 // Chunk ho rha hai
                 await statusHandler.UpdateStatusAsync(
-                    job.FileId, IngestionStatus.Chunking,
+                    req.FileId, IngestionStatus.Chunking,
                     $"Splitting with {_ingestionSettings.ChunkingStrategy} strategy", cancellationToken);
                 //code fat rha hei yha pe
                 /* var tokenizer = TiktokenTokenizer.CreateForModel("gpt-5.4");*/
@@ -183,7 +181,7 @@ namespace SkillHubAI_Api.Services.Ingestion
 
                 // Embedding generator
                 await statusHandler.UpdateStatusAsync(
-                    job.FileId, IngestionStatus.Embedding,
+                    req.FileId, IngestionStatus.Embedding,
                     "Generating embeddings via Azure OpenAI", cancellationToken);
 
                 using var vectorStore = new AzureAISearchVectorStore(
@@ -203,10 +201,10 @@ namespace SkillHubAI_Api.Services.Ingestion
 
                 // ─── ASSEMBLE & RUN PIPELINE ───
                 await statusHandler.UpdateStatusAsync(
-                    job.FileId, IngestionStatus.Storing,
+                    req.FileId, IngestionStatus.Storing,
                     "Executing ingestion pipeline", cancellationToken);
 
-                _logger.LogInformation("[{FileId}] PIPELINE — Executing", job.FileId);
+                _logger.LogInformation("[{FileId}] PIPELINE — Executing", req.FileId);
 
                 using var pipeline = new IngestionPipeline<string>(
                     reader, chunker, writer, loggerFactory: loggerFactory)
@@ -214,7 +212,7 @@ namespace SkillHubAI_Api.Services.Ingestion
                    // ChunkProcessors = { summaryEnricher, keywordEnricher }
                 };
 
-                // ProcessAsync takes FileInfo — pipeline handles read → chunk → enrich → embed → store
+              
                 var tempFile = new FileInfo(tempFilePath);
                 int totalDocs = 0;
                 bool succeeded = false;
@@ -228,21 +226,21 @@ namespace SkillHubAI_Api.Services.Ingestion
                         succeeded = true;
                         _logger.LogInformation(
                             "[{FileId}] PIPELINE ✓ — Document: {DocId}",
-                            job.FileId, result.DocumentId);
+                            req.FileId, result.DocumentId);
                     }
                     else
                     {
                         lastError = result.Exception?.Message;
                         _logger.LogError(result.Exception,
                             "[{FileId}] PIPELINE ✗ — Document: {DocId}",
-                            job.FileId, result.DocumentId);
+                            req.FileId, result.DocumentId);
                     }
                 }
 
-                // ─── FINALIZE ───
+                
                 if (succeeded)
                 {
-                    var metadata = await statusHandler.GetIngestionStatusAsync(job.FileId, cancellationToken);
+                    var metadata = await statusHandler.GetIngestionStatusAsync(req.FileId, cancellationToken);
                     if (metadata is not null)
                     {
                         metadata.Status = IngestionStatus.Completed;
@@ -254,15 +252,15 @@ namespace SkillHubAI_Api.Services.Ingestion
 
                     _logger.LogInformation(
                         "[{FileId}] ✅ COMPLETE → index '{Index}'",
-                        job.FileId, _searchSettings.IndexName);
+                        req.FileId, _searchSettings.IndexName);
                 }
                 else
                 {
                     await statusHandler.UpdateStatusAsync(
-                        job.FileId, IngestionStatus.Failed,
+                        req.FileId, IngestionStatus.Failed,
                         $"Pipeline failed: {lastError}", cancellationToken);
 
-                    _logger.LogError("[{FileId}] ❌ FAILED: {Error}", job.FileId, lastError);
+                    _logger.LogError("[{FileId}] ❌ FAILED: {Error}", req.FileId, lastError);
                 }
             }
             finally
@@ -275,7 +273,7 @@ namespace SkillHubAI_Api.Services.Ingestion
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[{FileId}] Failed to clean temp dir: {Dir}", job.FileId, tempDir);
+                    _logger.LogWarning(ex, "[{FileId}] Failed to clean temp dir: {Dir}", req.FileId, tempDir);
                 }
             }
         }

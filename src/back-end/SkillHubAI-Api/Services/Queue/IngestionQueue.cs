@@ -6,7 +6,7 @@ namespace SkillHubAI_Api.Services.Queue
 {
     public sealed class IngestionQueue : IIngestionQueue
     {
-        private readonly Channel<IngestionJob> _channel;
+        private readonly Channel<IngestionRequest> _channel;
 
         public IngestionQueue()
         {
@@ -16,23 +16,23 @@ namespace SkillHubAI_Api.Services.Queue
                 SingleReader = true,  
                 SingleWriter = false   
             };
-            _channel = Channel.CreateBounded<IngestionJob>(options);
+            _channel = Channel.CreateBounded<IngestionRequest>(options);
         }
 
         public async ValueTask EnqueueAsync(
-            IngestionJob job,
+            IngestionRequest req,
             CancellationToken cancellationToken = default)
         {
-            ArgumentNullException.ThrowIfNull(job);
-            await _channel.Writer.WriteAsync(job, cancellationToken);
+            ArgumentNullException.ThrowIfNull(req);
+            await _channel.Writer.WriteAsync(req, cancellationToken);
         }
 
-        public async IAsyncEnumerable<IngestionJob> DequeueAllAsync(
+        public async IAsyncEnumerable<IngestionRequest> DequeueAllAsync(
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            await foreach (var job in _channel.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var req in _channel.Reader.ReadAllAsync(cancellationToken))
             {
-                yield return job;
+                yield return req;
             }
         }
     }

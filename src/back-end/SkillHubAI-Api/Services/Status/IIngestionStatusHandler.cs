@@ -14,10 +14,6 @@
             IngestionMetadata metadata,
             CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// Convenience method to update just the status and message
-        /// without fetching the full document first.
-        /// </summary>
         Task UpdateStatusAsync(
             string fileId,
             IngestionStatus status,

@@ -106,18 +106,11 @@ namespace SkillHubAI_Api.Services.Agent
             CancellationToken cancellationToken = default)
         {
             var sessionId = Guid.NewGuid().ToString();
-
-            // Create agent session
             var session = await EnsureAgent().CreateSessionAsync(cancellationToken);
 
-
-            // Link session to our sessionId in the history provider
             _historyProvider.SetSessionId(session, sessionId);
 
-            // Cache in memory
             _sessions[sessionId] = session;
-
-            // Save session metadata to Cosmos
             var sessionDoc = new ChatSession
             {
                 Id = sessionId,
@@ -159,13 +152,6 @@ namespace SkillHubAI_Api.Services.Agent
             _logger.LogInformation("Agent chat — Session: {SessionId}, Message: {Message}",
                 sessionId, userMessage);
 
-            // Run the agent with the user message
-            // The agent will:
-            //   1. CosmosDbChatHistoryProvider loads history from Cosmos
-            //   2. Agent decides to call search_knowledge tool
-            //   3. Tool searches Azure AI Search, returns context
-            //   4. Agent generates grounded response
-            //   5. CosmosDbChatHistoryProvider saves new messages to Cosmos
             var messages = new List<AIChatMessage>
             {
                 new(ChatRole.User, userMessage)
@@ -210,24 +196,20 @@ namespace SkillHubAI_Api.Services.Agent
             }
         }
 
-        /// <summary>
-        /// Restores a session by creating a new AgentSession and linking it
-        /// to the existing sessionId. The history provider will load
-        /// previous messages from Cosmos on the next RunAsync call.
-        /// </summary>
+       
         private async Task<AgentSession?> RestoreSessionAsync(
             string sessionId,
             CancellationToken cancellationToken)
         {
             try
             {
-                // Verify session exists in Cosmos
+                
                 await _cosmosContainer.ReadItemAsync<ChatSession>(
                     sessionId,
                     new PartitionKey(sessionId),
                     cancellationToken: cancellationToken);
 
-                // Create a new AgentSession and link to existing sessionId
+              
                 var session = await EnsureAgent().CreateSessionAsync(cancellationToken);
 
                 _historyProvider.SetSessionId(session, sessionId);

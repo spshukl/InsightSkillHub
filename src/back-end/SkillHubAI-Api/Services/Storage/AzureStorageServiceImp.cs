@@ -37,28 +37,23 @@ namespace SkillHubAI_Api.Services.Storage
             string fileId,
             CancellationToken cancellationToken = default)
         {
-            // Generate a collision-safe blob name
             var safeFileName = Path.GetFileNameWithoutExtension(file.FileName);
             var extension = Path.GetExtension(file.FileName);
             var blobName = $"{safeFileName}-{fileId}{extension}";
 
-            // Get or create the container
             var containerClient = _blobServiceClient.GetBlobContainerClient(_settings.ContainerName);
             await containerClient.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
 
             var blobClient = containerClient.GetBlobClient(blobName);
 
-            // Upload the file stream
             await using (var stream = file.OpenReadStream())
             {
                 await blobClient.UploadAsync(stream, overwrite: true, cancellationToken);
             }
 
             _logger.LogInformation(
-                "Blob uploaded — Container: {Container}, Blob: {Blob}, Size: {Size} bytes",
-                _settings.ContainerName, blobName, file.Length);
-
-            // Create metadata record in Cosmos DB
+                "file uploaded   Blob: {Blob}, Size: {Size} bytes",
+                 blobName, file.Length);
             var metadata = new IngestionMetadata
             {
                 FileId = fileId,
@@ -74,8 +69,8 @@ namespace SkillHubAI_Api.Services.Storage
 
             await _statusHandler.CreateIngestionStatusAsync(metadata, cancellationToken);
 
-            // Enqueue for background processing — returns immediately
-            var job = new IngestionJob
+            // send req to begin data ingestion 
+            var req = new IngestionRequest
             {
                 FileId = fileId,
                 BlobUri = blobClient.Uri.AbsoluteUri,
@@ -84,14 +79,14 @@ namespace SkillHubAI_Api.Services.Storage
                 ContainerName = _settings.ContainerName
             };
 
-            await _ingestionQueue.EnqueueAsync(job, cancellationToken);
+            await _ingestionQueue.EnqueueAsync(req, cancellationToken);
 
             // Update status to Queued
             await _statusHandler.UpdateStatusAsync(
                 fileId, IngestionStatus.Queued,
-                "Job queued for background ingestion", cancellationToken);
+                " queued for background ingestion", cancellationToken);
 
-            _logger.LogInformation("Ingestion job queued — FileId: {FileId}", fileId);
+            _logger.LogInformation("ingestion— FileId: {FileId}", fileId);
 
             return metadata;
         }
@@ -100,8 +95,6 @@ namespace SkillHubAI_Api.Services.Storage
             string blobUri,
             CancellationToken cancellationToken = default)
         {
-            // Parse the URI to extract container and blob name,
-            // then use the authenticated BlobServiceClient
             var uri = new Uri(blobUri);
             var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
