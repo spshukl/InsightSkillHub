@@ -122,8 +122,26 @@ namespace SkillHubAI_Api.Services.Ingestion
                 "Downloading document from blob storage", cancellationToken);
 
             _logger.LogInformation("[{FileId}] Downloading blob: {BlobUri}", req.FileId, req.BlobUri);
+            // Retry download to handle race conditions with blob upload
+            const int maxRetries = 3;
+            const int delayMs = 200000;
+            Stream? blobStream = null;
 
-            using var blobStream = await storageService.DownloadBlobAsync(req.BlobUri, cancellationToken);
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    blobStream = await storageService.DownloadBlobAsync(req.BlobUri, cancellationToken);
+                    break;
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 404 && attempt < maxRetries)
+                {
+                    _logger.LogWarning(
+                        "[{FileId}] Blob not found (attempt {Attempt}/{Max}), retrying in {Delay}ms",
+                        req.FileId, attempt, maxRetries, delayMs);
+                    await Task.Delay(delayMs * attempt, cancellationToken);
+                }
+            }
 
             var tempDir = Path.Combine(Path.GetTempPath(), "skillhubai", req.FileId);
             Directory.CreateDirectory(tempDir);

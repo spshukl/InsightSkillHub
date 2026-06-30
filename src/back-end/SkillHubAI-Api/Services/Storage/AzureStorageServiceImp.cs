@@ -95,7 +95,7 @@ namespace SkillHubAI_Api.Services.Storage
             string blobUri,
             CancellationToken cancellationToken = default)
         {
-            var uri = new Uri(blobUri);
+            /*var uri = new Uri(blobUri);
             var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
             if (segments.Length < 2)
@@ -105,6 +105,18 @@ namespace SkillHubAI_Api.Services.Storage
 
             var containerName = segments[0];
             var blobName = string.Join("/", segments.Skip(1));
+
+            var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(blobName);
+
+            var response = await blobClient.DownloadStreamingAsync(cancellationToken: cancellationToken);
+            return response.Value.Content;*/
+
+            var uri = new Uri(blobUri);
+            // Use Uri.LocalPath or Uri.AbsolutePath with URL-decoding to get the actual blob name
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var containerName = Uri.UnescapeDataString(segments[0]);
+            var blobName = Uri.UnescapeDataString(string.Join("/", segments.Skip(1)));
 
             var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
             var blobClient = containerClient.GetBlobClient(blobName);
