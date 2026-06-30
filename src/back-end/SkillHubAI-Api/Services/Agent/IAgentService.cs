@@ -8,5 +8,7 @@ namespace SkillHubAI_Api.Services.Agent
         Task<string> ChatAsync(string sessionId, string userMessage, CancellationToken cancellationToken = default);
         Task<List<ChatCitation>> GetLastCitationsAsync();
         Task<AgentSessionInfo?> GetSessionInfoAsync(string sessionId, CancellationToken cancellationToken = default);
+        Task<List<AgentSessionInfo>> GetAllSessionsAsync(CancellationToken cancellationToken = default);
+        Task<List<ChatMessage>> GetSessionMessagesAsync(string sessionId, int count = 50, CancellationToken cancellationToken = default);
     }
 }

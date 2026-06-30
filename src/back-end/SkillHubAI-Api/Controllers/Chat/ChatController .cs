@@ -42,7 +42,21 @@ namespace SkillHubAI_Api.Controllers.Chat
             });
         }
 
-    
+     
+        [HttpGet("sessions")]
+        public async Task<IActionResult> GetAllSessions(CancellationToken cancellationToken)
+        {
+            var sessions = await _agentService.GetAllSessionsAsync(cancellationToken);
+
+            return Ok(sessions.Select(s => new
+            {
+                sessionId = s.SessionId,
+                title = s.Title,
+                createdAt = s.CreatedAt,
+                messageCount = s.MessageCount
+            }));
+        }
+
         [HttpGet("sessions/{sessionId}")]
         public async Task<IActionResult> GetSessions(string sessionId, CancellationToken cancellationToken)
         {
@@ -51,6 +65,26 @@ namespace SkillHubAI_Api.Controllers.Chat
                 return NotFound(new { error = "Session not found" });
 
             return Ok(info);
+        }
+
+       
+        [HttpGet("sessions/{sessionId}/messages")]
+        public async Task<IActionResult> GetSessionMessages(string sessionId, CancellationToken cancellationToken)
+        {
+            var sessionInfo = await _agentService.GetSessionInfoAsync(sessionId, cancellationToken);
+            if (sessionInfo is null)
+                return NotFound(new { error = "Session not found" });
+
+            var messages = await _agentService.GetSessionMessagesAsync(sessionId, count: 50, cancellationToken);
+
+            return Ok(messages.Select(m => new
+            {
+                id = m.Id,
+                role = m.Role,
+                content = m.Content,
+                citations = m.Citations,
+                timestamp = m.Timestamp
+            }));
         }
 
   

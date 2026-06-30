@@ -1,6 +1,7 @@
 ﻿using Azure.AI.OpenAI;
 using Microsoft.Agents.AI;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Azure.Cosmos.Linq;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
@@ -196,7 +197,51 @@ namespace SkillHubAI_Api.Services.Agent
             }
         }
 
-       
+        public async Task<List<AgentSessionInfo>> GetAllSessionsAsync(CancellationToken cancellationToken = default)
+        {
+            var query = _cosmosContainer.GetItemLinqQueryable<ChatSession>()
+                .Where(x => x.Type == "session")
+                .OrderByDescending(x => x.LastMessageAt);
+
+            var sessions = new List<AgentSessionInfo>();
+            using var iterator = query.ToFeedIterator();
+
+            while (iterator.HasMoreResults)
+            {
+                var response = await iterator.ReadNextAsync(cancellationToken);
+                sessions.AddRange(response.Select(doc => new AgentSessionInfo
+                {
+                    SessionId = doc.SessionId,
+                    Title = doc.Title,
+                    CreatedAt = doc.CreatedAt,
+                    MessageCount = doc.MessageCount
+                }));
+            }
+
+            return sessions;
+        }
+
+        public async Task<List<Models.ChatMessage>> GetSessionMessagesAsync(
+            string sessionId, int count = 50, CancellationToken cancellationToken = default)
+        {
+            var query = _cosmosContainer.GetItemLinqQueryable<Models.ChatMessage>()
+                .Where(x => x.SessionId == sessionId && x.Type == "message")
+                .OrderByDescending(x => x.Timestamp)
+                .Take(count);
+
+            var messages = new List<Models.ChatMessage>();
+            using var iterator = query.ToFeedIterator();
+
+            while (iterator.HasMoreResults)
+            {
+                var response = await iterator.ReadNextAsync(cancellationToken);
+                messages.AddRange(response);
+            }
+
+            messages.Reverse();
+            return messages;
+        }
+
         private async Task<AgentSession?> RestoreSessionAsync(
             string sessionId,
             CancellationToken cancellationToken)

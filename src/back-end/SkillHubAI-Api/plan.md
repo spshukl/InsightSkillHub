@@ -9,3 +9,8 @@ status (accepted uploading, ingestion completed failed.)
 cosmos me save kr denge.
 
 
+# blob storage
+# azure AI vector 
+# 
+
+

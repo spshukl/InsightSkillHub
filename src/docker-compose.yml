@@ -1,0 +1,35 @@
+services:
+  agenticai-api:
+    build:
+      context: ./back-end/SkillHubAI-Api
+      dockerfile: Dockerfile
+    container_name: agenticai-api
+    ports:
+      - "7001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+    volumes:
+      - ./back-end/SkillHubAI-Api/appsettings.Development.json:/app/appsettings.Development.json:ro
+    networks:
+      - ragnetwork
+
+  ragwebapp:
+    build:
+      context: ./front-end/RagWebApp
+      dockerfile: Dockerfile
+    container_name: ragwebapp
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ApiBaseUrl=http://agenticai-api:8080/
+    depends_on:
+      - agenticai-api
+    networks:
+      - ragnetwork
+
+networks:
+  ragnetwork:
+    driver: bridge

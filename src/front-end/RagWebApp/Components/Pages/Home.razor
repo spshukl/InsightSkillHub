@@ -1,0 +1,476 @@
+﻿@page "/"
+@using System.Text.RegularExpressions
+@using Markdig
+@using RagWebApp.Model
+@using RagWebApp.Services
+@inject IRagApiService RagApi
+@inject ILogger<Home> Logger
+@rendermode InteractiveServer
+
+<PageTitle>RAG Chat</PageTitle>
+
+<div class="chat-layout">
+    <!-- Left Sidebar: Session History -->
+    <aside class="session-sidebar">
+        <div class="sidebar-header">
+            <h6>💬 Chat History</h6>
+            <button class="btn btn-sm btn-outline-light" @onclick="StartNewSession" disabled="@_isCreatingSession" title="New Chat">
+                <span>＋</span>
+            </button>
+        </div>
+
+        <div class="session-list">
+            @foreach (var session in _sessions.OrderByDescending(s => s.CreatedAt))
+            {
+                <div class="session-item @(session.SessionId == _sessionId ? "active" : "")"
+                     @onclick="() => SwitchSession(session.SessionId)">
+                    <span class="session-title">@(string.IsNullOrEmpty(session.Title) ? "New Chat" : session.Title)</span>
+                    <span class="session-date">@session.CreatedAt.ToString("MMM dd, h:mm tt")</span>
+                </div>
+            }
+
+            @if (_sessions.Count == 0)
+            {
+                <div class="text-muted small p-3 text-center">No sessions yet</div>
+            }
+        </div>
+    </aside>
+
+    <!-- Main Area -->
+    <div class="chat-main-area">
+        <!-- Top Bar: Upload -->
+        <header class="upload-bar">
+            <div class="upload-bar-content">
+                <div class="d-flex align-items-center gap-3">
+                    <label class="upload-btn btn btn-sm btn-outline-primary">
+                        📄 Upload Document
+                        <InputFile OnChange="HandleFileUpload" class="d-none" accept=".pdf,.docx,.txt,.md" />
+                    </label>
+
+                    @if (_isUploading)
+                    {
+                        <span class="text-muted small">
+                            <span class="spinner-border spinner-border-sm me-1"></span> Uploading...
+                        </span>
+                    }
+
+                    @if (_uploadStatus is not null)
+                    {
+                        <span class="badge @(_uploadStatus.Status == "Completed" ? "bg-success" : _uploadStatus.Status == "Failed" ? "bg-danger" : "bg-info")">
+                            @_uploadStatus.FileName — @_uploadStatus.Status
+                            @if (_uploadStatus.ChunkCount > 0)
+                            {
+                                <span>(@_uploadStatus.ChunkCount chunks)</span>
+                            }
+                        </span>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_uploadError))
+                    {
+                        <span class="badge bg-danger">@_uploadError</span>
+                    }
+                </div>
+            </div>
+        </header>
+
+        <!-- Chat Area -->
+        <main class="chat-content">
+            @if (string.IsNullOrEmpty(_sessionId))
+            {
+                <div class="welcome-screen">
+                    <h3>Welcome to RAG Chat</h3>
+                    <p class="text-muted">Upload a document and start asking questions about it.</p>
+                    <button class="btn btn-primary btn-lg" @onclick="StartNewSession" disabled="@_isCreatingSession">
+                        @(_isCreatingSession ? "Creating..." : "＋ New Chat")
+                    </button>
+                </div>
+            }
+            else
+            {
+                <!-- Messages -->
+                <div class="messages-area" @ref="_messagesContainer">
+                    @if (_isLoadingMessages)
+                    {
+                        <div class="text-center text-muted p-4">
+                            <span class="spinner-border spinner-border-sm me-1"></span> Loading messages...
+                        </div>
+                    }
+
+                    @foreach (var msg in GetCleanedMessages())
+                    {
+                        <div class="message @(msg.Role == "user" ? "user-message" : "assistant-message")">
+                            <div class="message-avatar">
+                                @(msg.Role == "user" ? "🧑" : "🤖")
+                            </div>
+                            <div class="message-body">
+                                @if (msg.Role == "user")
+                                {
+                                    <div class="message-content">@msg.CleanedContent</div>
+                                }
+                                else
+                                {
+                                    <div class="message-content markdown-body">
+                                        @RenderMarkdown(msg.CleanedContent)
+                                    </div>
+                                }
+
+                                @if (msg.Citations is { Count: > 0 })
+                                {
+                                    <details class="citation-section">
+                                        <summary>
+                                            📚 @msg.Citations.Count source@(msg.Citations.Count > 1 ? "s" : "") referenced
+                                        </summary>
+                                        <div class="citation-cards">
+                                            @foreach (var citation in msg.Citations)
+                                            {
+                                                <div class="citation-card">
+                                                    <div class="citation-header">
+                                                        <span class="citation-filename">
+                                                            📄 @GetCleanFileName(citation.SourceFileName)
+                                                        </span>
+                                                        <span class="relevance-badge @GetRelevanceClass(citation.RelevanceScore)">
+                                                            @citation.RelevanceScore.ToString("P0")
+                                                        </span>
+                                                    </div>
+                                                    @if (!string.IsNullOrWhiteSpace(citation.ChunkContent))
+                                                    {
+                                                        <div class="citation-preview">
+                                                            @TruncateText(citation.ChunkContent, 200)
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (_isWaitingForResponse)
+                    {
+                        <div class="message assistant-message">
+                            <div class="message-avatar">🤖</div>
+                            <div class="message-body">
+                                <div class="typing-indicator">
+                                    <span></span><span></span><span></span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Input -->
+                <div class="input-area">
+                    <div class="input-wrapper">
+                        <input @bind="_userInput" @bind:event="oninput"
+                               @onkeydown="HandleKeyDown"
+                               class="form-control"
+                               placeholder="Ask a question about your documents..."
+                               disabled="@_isWaitingForResponse" />
+                        <button class="btn btn-primary send-btn" @onclick="SendMessage"
+                                disabled="@(string.IsNullOrWhiteSpace(_userInput) || _isWaitingForResponse)">
+                            ➤
+                        </button>
+                    </div>
+                </div>
+            }
+        </main>
+    </div>
+</div>
+
+@code {
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+
+    private static readonly Regex RagContextBlockRegex = new(
+        @"#{1,3}\s*Additional\s*Context.*",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex RagInstructionBlockRegex = new(
+        @"(Consider the following information from source documents|Include citations to the source document).*",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex MetadataLineRegex = new(
+        @"^(SourceDocName|SourceDocLink|SourceFileName|Contents):.*$",
+        RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
+
+    private static readonly Regex TmpPathLineRegex = new(
+        @"^/tmp/skillhubai/.*$",
+        RegexOptions.Multiline | RegexOptions.Compiled);
+
+    private static readonly Regex MultipleNewlinesRegex = new(
+        @"\n{3,}",
+        RegexOptions.Compiled);
+
+    private string _sessionId = string.Empty;
+    private string _userInput = string.Empty;
+    private string _uploadError = string.Empty;
+    private bool _isCreatingSession;
+    private bool _isWaitingForResponse;
+    private bool _isLoadingMessages;
+    private bool _isUploading;
+    private IngestionStatus? _uploadStatus;
+    private ElementReference _messagesContainer;
+    private readonly List<ChatMessageViewModel> _messages = [];
+    private List<SessionResponse> _sessions = [];
+
+    // ── Display record ──
+    private record CleanedMessage(string Role, string CleanedContent, List<Citation>? Citations);
+
+    private IEnumerable<CleanedMessage> GetCleanedMessages()
+    {
+        foreach (var msg in _messages)
+        {
+            var cleaned = CleanDisplayContent(msg.Content);
+
+            // DEBUG: Log raw vs cleaned content
+            Logger.LogWarning(
+                "[DEBUG] Role={Role} | Raw length={RawLen} | Cleaned length={CleanLen}\n" +
+                "──── RAW (first 300) ────\n{Raw}\n" +
+                "──── CLEANED (first 300) ────\n{Cleaned}",
+                msg.Role,
+                msg.Content?.Length ?? 0,
+                cleaned.Length,
+                msg.Content?.Length > 300 ? msg.Content[..300] : msg.Content ?? "(null)",
+                cleaned.Length > 300 ? cleaned[..300] : cleaned);
+
+            if (!string.IsNullOrWhiteSpace(cleaned))
+            {
+                yield return new CleanedMessage(msg.Role, cleaned, msg.Citations);
+            }
+            else
+            {
+                Logger.LogWarning("[DEBUG] ⚠️ SKIPPED message — entirely RAG context. Role={Role}", msg.Role);
+            }
+        }
+    }
+
+    // ── Rendering Helpers ──
+
+    private static MarkupString RenderMarkdown(string content)
+    {
+        var html = Markdown.ToHtml(content, MarkdownPipeline);
+        return new MarkupString(html);
+    }
+
+    private static string CleanDisplayContent(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return string.Empty;
+
+        // Normalize line endings
+        content = content.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // 1. Strip everything from "## Additional Context" onwards
+        content = RagContextBlockRegex.Replace(content, "");
+
+        // 2. Strip everything from "Consider the following information..." onwards
+        content = RagInstructionBlockRegex.Replace(content, "");
+
+        // 3. Remove individual metadata lines
+        content = MetadataLineRegex.Replace(content, "");
+
+        // 4. Remove /tmp/skillhubai/ path lines
+        content = TmpPathLineRegex.Replace(content, "");
+
+        // 5. Clean up multiple blank lines and trailing separators
+        content = MultipleNewlinesRegex.Replace(content, "\n\n");
+        content = content.Trim().TrimEnd('-', '=', '\n', ' ');
+
+        return string.IsNullOrWhiteSpace(content) ? string.Empty : content.Trim();
+    }
+
+    private static string GetCleanFileName(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "Unknown";
+
+        var lastSlash = path.LastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash < path.Length - 1)
+            return path[(lastSlash + 1)..];
+
+        return path;
+    }
+
+    private static string TruncateText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+            return text;
+
+        return text[..maxLength] + "…";
+    }
+
+    private static string GetRelevanceClass(double score) => score switch
+    {
+        >= 0.8 => "relevance-high",
+        >= 0.5 => "relevance-medium",
+        _ => "relevance-low"
+    };
+
+    // ── Lifecycle ──
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessionsAsync();
+    }
+
+    private async Task LoadSessionsAsync()
+    {
+        try
+        {
+            _sessions = await RagApi.GetAllSessionsAsync();
+        }
+        catch
+        {
+            _sessions = [];
+        }
+    }
+
+    private async Task StartNewSession()
+    {
+        _isCreatingSession = true;
+        try
+        {
+            var session = await RagApi.CreateSessionAsync();
+            if (session is not null)
+            {
+                _sessions.Add(session);
+                _sessionId = session.SessionId;
+                _messages.Clear();
+            }
+        }
+        finally
+        {
+            _isCreatingSession = false;
+        }
+    }
+
+    private async Task SwitchSession(string sessionId)
+    {
+        if (sessionId == _sessionId)
+            return;
+
+        _sessionId = sessionId;
+        _messages.Clear();
+        _isLoadingMessages = true;
+        StateHasChanged();
+
+        try
+        {
+            var messages = await RagApi.GetSessionMessagesAsync(sessionId);
+            Logger.LogWarning("[DEBUG] Loaded {Count} messages for session {SessionId}", messages.Count, sessionId);
+            _messages.AddRange(messages);
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatMessageViewModel
+            {
+                Role = "assistant",
+                Content = $"Error loading messages: {ex.Message}"
+            });
+        }
+        finally
+        {
+            _isLoadingMessages = false;
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput) || string.IsNullOrEmpty(_sessionId))
+            return;
+
+        var userMessage = _userInput.Trim();
+        _userInput = string.Empty;
+
+        _messages.Add(new ChatMessageViewModel { Role = "user", Content = userMessage });
+        _isWaitingForResponse = true;
+        StateHasChanged();
+
+        try
+        {
+            var response = await RagApi.SendMessageAsync(_sessionId, userMessage);
+            if (response is not null)
+            {
+                _messages.Add(new ChatMessageViewModel
+                {
+                    Role = "assistant",
+                    Content = response.Response,
+                    Citations = response.Citations ?? []
+                });
+            }
+
+            var session = _sessions.FirstOrDefault(s => s.SessionId == _sessionId);
+            if (session is not null && string.IsNullOrEmpty(session.Title))
+            {
+                session.Title = userMessage.Length > 40
+                    ? userMessage[..40] + "..."
+                    : userMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatMessageViewModel
+            {
+                Role = "assistant",
+                Content = $"Error: {ex.Message}"
+            });
+        }
+        finally
+        {
+            _isWaitingForResponse = false;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        _uploadError = string.Empty;
+        _uploadStatus = null;
+        _isUploading = true;
+
+        try
+        {
+            var file = e.File;
+            const long maxSize = 10 * 1024 * 1024;
+
+            await using var stream = file.OpenReadStream(maxSize);
+            var result = await RagApi.UploadDocumentAsync(stream, file.Name);
+
+            if (result is not null)
+            {
+                await PollIngestionStatus(result.UploadId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _uploadError = ex.Message;
+        }
+        finally
+        {
+            _isUploading = false;
+        }
+    }
+
+    private async Task PollIngestionStatus(string uploadId)
+    {
+        for (int i = 0; i < 30; i++)
+        {
+            await Task.Delay(2000);
+            _uploadStatus = await RagApi.GetIngestionStatusAsync(uploadId);
+            StateHasChanged();
+
+            if (_uploadStatus?.Status is "Completed" or "Failed")
+                break;
+        }
+    }
+}
